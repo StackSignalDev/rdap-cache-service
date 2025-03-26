@@ -1,0 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model IpCache { // Renamed to reflect focus
+  id          String   @id @default(cuid())
+  cidrBlock   String   @unique @db.Cidr // The CIDR block IS the unique identifier for caching purposes.
+  data        Json     // The full RDAP JSON response associated with this *block*.
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt // Represents the freshness of the *block's* data.
+
+  @@index([cidrBlock], type: Gist) // Crucial for efficient containment lookups.
+}
+
+model DomainCache {
+  id          String   @id @default(cuid())
+  domainName  String   @unique // e.g., "example.com"
+  data        Json     // Contains the RDAP Domain JSON structure
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([domainName])
+}
