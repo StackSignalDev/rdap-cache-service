@@ -15,12 +15,12 @@ datasource db {
 
 model IpCache { // Renamed to reflect focus
   id          String   @id @default(cuid())
-  cidrBlock   String   @unique @db.Cidr // The CIDR block IS the unique identifier for caching purposes.
+  cidrBlock   String   @unique // Store as a standard TEXT column in Postgres
   data        Json     // The full RDAP JSON response associated with this *block*.
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt // Represents the freshness of the *block's* data.
 
-  @@index([cidrBlock], type: Gist) // Crucial for efficient containment lookups.
+  @@index([cidrBlock]) // Crucial for efficient containment lookups.
 }
 
 model DomainCache {
