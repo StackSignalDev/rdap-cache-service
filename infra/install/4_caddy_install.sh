@@ -54,7 +54,7 @@ sudo bash -c "cat > $CADDYFILE_PATH" <<EOF
 # 1. If this IP is incorrect or you want to use a domain name, EDIT this line.
 # 2. Caddy will serve over HTTP for IP addresses. For automatic HTTPS, use a domain name.
 
-$ADDRESS_PLACEHOLDER {
+http://$ADDRESS_PLACEHOLDER {
     # Reverse proxy requests to the Node.js app running on localhost
     reverse_proxy localhost:${NODE_APP_PORT}
 
