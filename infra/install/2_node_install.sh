@@ -2,71 +2,137 @@
 
 # Exit immediately if a command exits with a non-zero status.
 set -e
-# Treat unset variables as an error
-set -u
-# Exit on error within pipes
-set -o pipefail
 
 # --- Configuration ---
-NODE_MAJOR=22 # Specify the major Node.js version (LTS)
+NODE_APP_PORT="3000" # Default port your Node.js app listens on
+CADDYFILE_PATH="/etc/caddy/Caddyfile"
+METADATA_URL="http://169.254.169.254/latest/meta-data/public-ipv4"
+# --- End Configuration ---
 
-# --- Script Start ---
-echo "-------------------------------------------"
-echo "Starting Node.js v${NODE_MAJOR}.x Installation..."
-echo "-------------------------------------------"
+echo "--- Starting Caddy Installation for Ubuntu ---"
 
-# --- 1. Prerequisite Check & Update ---
-echo "Updating package list (apt update)..."
-sudo apt update -y
-echo "Ensuring necessary packages for adding repo are installed (curl, gpg)..."
-# These should already be installed by UserData, but doesn't hurt to ensure
-sudo apt install -y curl gpg apt-transport-https ca-certificates
+# --- Attempt to Fetch Public IP ---
+echo "Attempting to fetch EC2 public IP address..."
+# Use curl with a timeout. -s for silent.
+PUBLIC_IP=$(curl -s --connect-timeout 5 "$METADATA_URL")
 
-# --- 2. Add NodeSource Repository ---
-KEYRING_DIR="/etc/apt/keyrings"
-KEYRING_PATH="${KEYRING_DIR}/nodesource.gpg"
-SOURCE_LIST="/etc/apt/sources.list.d/nodesource.list"
-
-echo "Creating keyring directory: ${KEYRING_DIR}..."
-sudo mkdir -p "${KEYRING_DIR}"
-
-echo "Downloading and adding NodeSource GPG key to ${KEYRING_PATH}..."
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o "${KEYRING_PATH}"
-
-echo "Adding NodeSource repository definition to ${SOURCE_LIST}..."
-# Ensure correct architecture is detected (usually amd64 on EC2)
-ARCH=$(dpkg --print-architecture)
-echo "deb [signed-by=${KEYRING_PATH} arch=${ARCH}] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" | sudo tee "${SOURCE_LIST}" > /dev/null
-
-# --- 3. Install Node.js ---
-echo "Updating package list again after adding NodeSource repo..."
-sudo apt update -y
-
-echo "Installing Node.js..."
-# This will install nodejs and npm from the NodeSource repository
-sudo apt install nodejs -y
-
-# --- 4. Verify Installation ---
-echo "Verifying Node.js installation..."
-NODE_VERSION=$(node -v || echo "Node not found")
-NPM_VERSION=$(npm -v || echo "npm not found")
-
-echo "Node.js version: ${NODE_VERSION}"
-echo "npm version:     ${NPM_VERSION}"
-
-if [[ "$NODE_VERSION" == "Node not found" ]] || [[ "$NPM_VERSION" == "npm not found" ]]; then
-    echo "ERROR: Node.js or npm installation failed."
-    exit 1
+if [ -z "$PUBLIC_IP" ]; then
+    echo "WARNING: Could not automatically fetch public IP address from metadata service."
+    echo "Using placeholder 'YOUR_DOMAIN_OR_IP'. You MUST edit the Caddyfile manually."
+    ADDRESS_PLACEHOLDER="YOUR_DOMAIN_OR_IP"
+else
+    echo "Successfully fetched public IP: $PUBLIC_IP"
+    ADDRESS_PLACEHOLDER="$PUBLIC_IP"
 fi
-# Optional: Check if the major version matches
-if [[ ! "$NODE_VERSION" =~ ^v${NODE_MAJOR}\. ]]; then
-    echo "WARNING: Installed Node.js version ($NODE_VERSION) does not match the expected major version ($NODE_MAJOR)."
-fi
+echo "" # Newline for readability
+
+# --- Install Dependencies and Add Caddy Repository ---
+echo "Updating package list and installing dependencies..."
+sudo apt update
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+
+echo "Adding Caddy GPG key..."
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+echo "Adding Caddy repository..."
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list > /dev/null
+
+# --- Install Caddy ---
+echo "Updating package list again and installing Caddy..."
+sudo apt update
+sudo apt install -y caddy
+
+echo "Caddy installation completed."
+
+# --- Create/Overwrite Basic Caddyfile ---
+echo "Creating basic Caddyfile at $CADDYFILE_PATH using fetched IP (or placeholder)..."
+# Use the fetched IP or the placeholder if fetching failed.
+sudo bash -c "cat > $CADDYFILE_PATH" <<EOF
+# --- Caddyfile ---
+# Automatically populated with Public IP: $ADDRESS_PLACEHOLDER
+# IMPORTANT:
+# 1. If this IP is incorrect or you want to use a domain name, EDIT this line.
+# 2. Caddy will serve over HTTP for IP addresses. For automatic HTTPS, use a domain name.
+
+$ADDRESS_PLACEHOLDER {
+    # Reverse proxy requests to the Node.js app running on localhost
+    reverse_proxy localhost:${NODE_APP_PORT}
+
+    # Optional: Enable compression
+    encode gzip zstd
+
+    # Optional: Basic logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+
+    # Optional: Recommended security headers (uncomment if needed)
+    # header {
+    #    # Enable HTTP Strict Transport Security (HSTS) - Only use with HTTPS/Domains!
+    #    # Strict-Transport-Security "max-age=31536000;"
+    #    # Enable cross-site scripting (XSS) protection
+    #    # X-Xss-Protection "1; mode=block"
+    #    # Prevent MIME-sniffing
+    #    # X-Content-Type-Options "nosniff"
+    #    # Prevent clickjacking
+    #    # X-Frame-Options "DENY"
+    #    # Control information shared in the Referer header
+    #    # Referrer-Policy "strict-origin-when-cross-origin"
+    # }
+}
+
+# --- End Caddyfile ---
+EOF
+
+echo "Basic Caddyfile created."
+echo "VERIFY the address '$ADDRESS_PLACEHOLDER' in $CADDYFILE_PATH is correct."
+echo "If you need HTTPS, you MUST replace the IP with your domain name."
+echo "Edit with: sudo nano $CADDYFILE_PATH"
+echo "(If your Node app uses a different port, change ${NODE_APP_PORT} too)."
 
 
-# --- Script End ---
-echo "-------------------------------------------"
-echo "Node.js v${NODE_MAJOR}.x Installation completed successfully!"
-echo "-------------------------------------------"
+# --- Enable and Start Caddy Service ---
+echo "Enabling and starting Caddy service via systemd..."
+sudo systemctl enable caddy
+# Use restart instead of start to ensure it picks up the new config if Caddy was already running somehow
+sudo systemctl restart caddy
 
-exit 0
+# Give Caddy a moment to potentially apply config
+sleep 3
+
+# --- Display Status and Final Instructions ---
+echo ""
+echo "--- Caddy Installation Summary ---"
+sudo systemctl status caddy --no-pager || echo "Warning: Could not get Caddy status."
+echo ""
+echo "--- NEXT STEPS ---"
+echo "1.  VERIFY/EDIT THE CADDYFILE:"
+echo "    sudo nano $CADDYFILE_PATH"
+echo "    => Ensure the IP address '$ADDRESS_PLACEHOLDER' is correct."
+echo "    => *** If you want HTTPS, replace the IP address with your domain name. ***"
+echo "    => Adjust port '${NODE_APP_PORT}' if your Node app runs elsewhere."
+echo ""
+echo "2.  RELOAD CADDY CONFIGURATION (if you edited the file):"
+echo "    sudo systemctl reload caddy"
+echo ""
+echo "3.  ENSURE FIREWALL / SECURITY GROUP IS OPEN:"
+echo "    => Allow inbound traffic on TCP ports 80 and 443 in your EC2 Security Group."
+echo "    => If using UFW (Ubuntu Firewall):"
+echo "       sudo ufw allow http"
+echo "       sudo ufw allow https"
+echo "       sudo ufw reload  (or sudo ufw enable if not already enabled)"
+echo ""
+echo "4.  NODE.JS APP:"
+echo "    => Make sure your Node.js application (from 2_node_install.sh context) is running and listening on localhost:${NODE_APP_PORT}."
+echo "       (Use PM2 or similar to keep it running: pm2 start your_app.js)"
+echo ""
+echo "5.  TEST:"
+echo "    => Access http://$ADDRESS_PLACEHOLDER in your browser."
+echo "       (If you changed to a domain, access https://your.domain.com)."
+echo ""
+echo "6.  LOGS (if needed):"
+echo "    => Check Caddy system logs: journalctl -u caddy --no-pager | less +G"
+echo "    => Check Caddy access logs (if enabled in Caddyfile): /var/log/caddy/access.log"
+echo ""
+echo "--- Script Finished ---"
