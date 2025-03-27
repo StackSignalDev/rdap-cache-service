@@ -1,11 +1,8 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
 set -e
-# Treat unset variables as an error (optional but good practice)
-# set -u
-# Exit on error within pipes (optional but good practice)
-# set -o pipefail
+set -u
+set -o pipefail
 
 # --- Configuration Variables ---
 DB_NAME="${PG_DB:-rdap_cache}"
