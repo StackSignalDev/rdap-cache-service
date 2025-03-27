@@ -41,24 +41,6 @@ if [ ! -f "$APP_DIR/package.json" ]; then
     # Optionally exit 1 here if this is critical
 fi
 
-
-# --- 1. Set postgres superuser password ---
-echo "Setting password for the 'postgres' superuser..."
-read -s -p "Enter new password for the 'postgres' user (leave blank to skip): " POSTGRES_PASSWORD
-echo
-if [ -z "$POSTGRES_PASSWORD" ]; then
-  echo "No password entered. Skipping password change for 'postgres' user."
-else
-  sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$POSTGRES_PASSWORD';" > /dev/null
-  if [ $? -eq 0 ]; then
-    echo "'postgres' user password successfully updated."
-  else
-    echo "ERROR: Failed to update 'postgres' user password."
-  fi
-fi
-echo "-------------------------------------------"
-sleep 1
-
 # --- 2. Create Application User and Database ---
 echo "Configuring application database '$DB_NAME' and user '$DB_USER'..."
 
@@ -97,10 +79,14 @@ if [ -f "$ENV_FILE" ]; then
     echo "WARNING: $ENV_FILE already exists. Database URL not automatically added/updated."
     echo "         Please manually ensure the following line is correct in $ENV_FILE:"
     echo "         DATABASE_URL=\"${DATABASE_URL}\""
+    # Removed PORT warning
 else
     echo "Creating $ENV_FILE..."
     # Use printf for safer handling of the URL
     printf "DATABASE_URL=\"%s\"\n" "${DATABASE_URL}" > "$ENV_FILE"
+    # Removed PORT printf
+    # Add other default environment variables here if needed (but likely not in this script)
+
     # Set ownership to the application user
     APP_SETUP_USER="rdapapp" # Make sure this matches the user created by UserData
     echo "Setting ownership of $ENV_FILE to ${APP_SETUP_USER}..."
