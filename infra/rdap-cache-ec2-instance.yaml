@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Launches Ubuntu EC2, installs git, clones repo, uses Fn::Sub map for user/dir."
+
+Parameters:
+  KeyName:
+    Type: String # Using String due to previous validation issue
+    Description: "Name of an existing EC2 KeyPair to enable SSH access to the instance"
+
+  InstanceType:
+    Type: String
+    Description: "EC2 instance type"
+    Default: t3.nano
+    AllowedValues:
+      - t2.micro
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+
+  AMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: "The AMI ID to use for the EC2 instance (Latest Ubuntu 22.04 LTS)"
+    Default: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+
+  SecurityGroupStackName:
+    Type: String
+    Description: "Name of the CloudFormation stack that created the security group (e.g., rdap-cache-sg-stack)."
+    Default: "rdap-cache-sg-stack"
+
+  AppRepoUrl:
+    Type: String
+    Description: "The Git HTTPS URL for the application repository."
+    Default: "https://github.com/StackSignalDev/rdap-cache-service.git"
+
+Resources:
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub "${SecurityGroupStackName}-SecurityGroupId" # Keep !Sub here
+      Tags:
+        - Key: Name
+          Value: RDAPCacheInstance
+      # --- UserData using !Sub, defining APP_USER/APP_DIR in VarMap ---
+      UserData:
+        Fn::Base64:
+          # Use !Sub directly before the list [String, VarMap]
+          !Sub
+            - |
+              #!/bin/bash -xe
+              # Log everything
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+              echo "Starting UserData script (using Fn::Sub map for user/dir)..."
+
+              # --- Variables are substituted by Fn::Sub from the map below ---
+              # Removed APP_USER=... and APP_DIR=... from here
+
+              # --- System Update and Git Install ---
+              echo "Updating system packages..."
+              apt update -y
+              echo "Installing git..."
+              apt install -y git
+
+              # --- Application User and Directory Setup ---
+              # Use ${APP_USER} (no !) - will be substituted by Fn::Sub
+              echo "Creating application user ${APP_USER}..."
+              useradd -m -s /bin/bash ${APP_USER} || echo "User ${APP_USER} already exists"
+
+              # Use ${APP_DIR} (no !) - will be substituted by Fn::Sub
+              echo "Creating application directory ${APP_DIR}..."
+              mkdir -p ${APP_DIR}
+
+              # Use ${AppRepoUrl}, ${APP_DIR} (no !) - substituted by Fn::Sub
+              echo "Cloning application from ${AppRepoUrl} into ${APP_DIR}..."
+              git clone ${AppRepoUrl} ${APP_DIR}
+
+              # Use ${APP_USER}, ${APP_DIR} (no !) - substituted by Fn::Sub
+              echo "Setting ownership of ${APP_DIR} to ${APP_USER}..."
+              chown -R ${APP_USER}:${APP_USER} ${APP_DIR}
+
+              echo "UserData script finished."
+              echo "**********************************************************************"
+              echo "***                          ACTION REQUIRED                         ***"
+              echo "**********************************************************************"
+              echo "*** 1. SSH into the instance: ssh -i <key.pem> ubuntu@<public_ip>  ***"
+              # Use ${APP_DIR} (no !) - substituted by Fn::Sub
+              echo "*** 2. Navigate to the app directory: cd ${APP_DIR}                ***"
+              echo "*** 3. Run setup scripts located within the repository, e.g.:      ***"
+              echo "***    sudo bash scripts/install_dependencies.sh                   ***"
+              echo "***    sudo bash scripts/setup_postgres.sh                         ***"
+              echo "***    sudo bash scripts/setup_service.sh                          ***"
+              echo "***    (Adjust script names/paths as needed based on your repo)    ***"
+              echo "*** 4. Configure .env file as required by your setup scripts.      ***"
+              echo "**********************************************************************"
+            # Variable map for Fn::Sub - Define APP_USER and APP_DIR here
+            - {
+                AppRepoUrl: !Ref AppRepoUrl,
+                APP_USER: "rdapapp",
+                APP_DIR: "/srv/rdap-cache-service"
+              }
+
+Outputs:
+  InstanceId:
+    Description: "The ID of the EC2 instance"
+    Value: !Ref EC2Instance
+  PublicIp:
+    Description: "The public IP address of the EC2 instance"
+    Value: !GetAtt EC2Instance.PublicIp
