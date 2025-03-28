@@ -1,24 +1,24 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: "Creates a Security Group for the RDAP Cache service allowing SSH (restricted), HTTP, and HTTPS."
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Creates a Security Group for the RDAP Cache service allowing SSH (restricted), HTTP, and HTTPS.'
 
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
-    Description: "ID of the VPC where the security group should be created."
+    Description: 'ID of the VPC where the security group should be created.'
 
   GroupName:
     Type: String
-    Description: "Name for the security group."
-    Default: "rdap-cache-sg"
+    Description: 'Name for the security group.'
+    Default: 'rdap-cache-sg'
 
   GroupDescription:
     Type: String
-    Description: "Description for the security group."
-    Default: "Security group for RDAP Cache service instance"
+    Description: 'Description for the security group.'
+    Default: 'Security group for RDAP Cache service instance'
 
   SshCidrIp:
     Type: String
-    Description: "MANDATORY: CIDR block for allowed SSH access (e.g., Your.IP.Address/32). Do not use 0.0.0.0/0!"
+    Description: 'MANDATORY: CIDR block for allowed SSH access (e.g., Your.IP.Address/32). Do not use 0.0.0.0/0!'
     # No Default value - must be provided at deployment
 
 Resources:
@@ -53,13 +53,13 @@ Resources:
 
 Outputs:
   SecurityGroupId:
-    Description: "The ID of the created Security Group"
+    Description: 'The ID of the created Security Group'
     Value: !GetAtt RdapCacheSecurityGroup.GroupId # Export the actual Group ID
     Export:
-      Name: !Sub "${AWS::StackName}-SecurityGroupId" # Make the export name unique
+      Name: !Sub '${AWS::StackName}-SecurityGroupId' # Make the export name unique
 
   SecurityGroupName:
-    Description: "The Name of the created Security Group"
+    Description: 'The Name of the created Security Group'
     Value: !Ref RdapCacheSecurityGroup # Export the Name (Logical ID resolves to Name here)
     Export:
-      Name: !Sub "${AWS::StackName}-SecurityGroupName" # Make the export name unique
+      Name: !Sub '${AWS::StackName}-SecurityGroupName' # Make the export name unique

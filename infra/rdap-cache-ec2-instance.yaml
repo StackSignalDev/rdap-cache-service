@@ -1,14 +1,14 @@
-AWSTemplateFormatVersion: "2010-09-09"
-Description: "Launches EC2, installs git, clones repo, executes install scripts from repo."
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Launches EC2, installs git, clones repo, executes install scripts from repo.'
 
 Parameters:
   KeyName:
     Type: String # Using String due to previous validation issue
-    Description: "Name of an existing EC2 KeyPair to enable SSH access to the instance"
+    Description: 'Name of an existing EC2 KeyPair to enable SSH access to the instance'
 
   InstanceType:
     Type: String
-    Description: "EC2 instance type"
+    Description: 'EC2 instance type'
     Default: t3.nano
     AllowedValues:
       - t2.micro
@@ -19,18 +19,18 @@ Parameters:
 
   AMI:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Description: "The AMI ID to use for the EC2 instance (Latest Ubuntu 22.04 LTS)"
-    Default: "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+    Description: 'The AMI ID to use for the EC2 instance (Latest Ubuntu 22.04 LTS)'
+    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
 
   SecurityGroupStackName:
     Type: String
-    Description: "Name of the CloudFormation stack that created the security group (e.g., rdap-cache-sg-stack)."
-    Default: "rdap-cache-sg-stack"
+    Description: 'Name of the CloudFormation stack that created the security group (e.g., rdap-cache-sg-stack).'
+    Default: 'rdap-cache-sg-stack'
 
   AppRepoUrl:
     Type: String
-    Description: "The Git HTTPS URL for the application repository."
-    Default: "https://github.com/StackSignalDev/rdap-cache-service.git"
+    Description: 'The Git HTTPS URL for the application repository.'
+    Default: 'https://github.com/StackSignalDev/rdap-cache-service.git'
 
 Resources:
   EC2Instance:
@@ -40,7 +40,7 @@ Resources:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
       SecurityGroupIds:
-        - Fn::ImportValue: !Sub "${SecurityGroupStackName}-SecurityGroupId" # Keep !Sub here for SG import
+        - Fn::ImportValue: !Sub '${SecurityGroupStackName}-SecurityGroupId' # Keep !Sub here for SG import
       Tags:
         - Key: Name
           Value: RDAPCacheInstance
@@ -49,80 +49,80 @@ Resources:
         Fn::Base64:
           # Use !Sub directly before the list [String, VarMap]
           !Sub
-            - |
-              #!/bin/bash -xe
-              # Log everything
-              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          - |
+            #!/bin/bash -xe
+            # Log everything
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-              echo "Starting UserData script (using Fn::Sub map for user/dir, executing repo scripts)..."
+            echo "Starting UserData script (using Fn::Sub map for user/dir, executing repo scripts)..."
 
-              # --- Variables are substituted by Fn::Sub from the map below ---
+            # --- Variables are substituted by Fn::Sub from the map below ---
 
-              # --- System Update and Git Install ---
-              echo "Updating system packages..."
-              apt update -y
-              echo "Installing git..."
-              apt install -y git
+            # --- System Update and Git Install ---
+            echo "Updating system packages..."
+            apt update -y
+            echo "Installing git..."
+            apt install -y git
 
-              # --- Application User and Directory Setup ---
-              # Use ${APP_USER} (no !) - will be substituted by Fn::Sub
-              echo "Creating application user ${APP_USER}..."
-              useradd -m -s /bin/bash ${APP_USER} || echo "User ${APP_USER} already exists"
+            # --- Application User and Directory Setup ---
+            # Use ${APP_USER} (no !) - will be substituted by Fn::Sub
+            echo "Creating application user ${APP_USER}..."
+            useradd -m -s /bin/bash ${APP_USER} || echo "User ${APP_USER} already exists"
 
-              # Use ${APP_DIR} (no !) - will be substituted by Fn::Sub
-              echo "Creating application directory ${APP_DIR}..."
-              mkdir -p ${APP_DIR}
+            # Use ${APP_DIR} (no !) - will be substituted by Fn::Sub
+            echo "Creating application directory ${APP_DIR}..."
+            mkdir -p ${APP_DIR}
 
-              # Use ${AppRepoUrl}, ${APP_DIR} (no !) - substituted by Fn::Sub
-              echo "Cloning application from ${AppRepoUrl} into ${APP_DIR}..."
-              git clone ${AppRepoUrl} ${APP_DIR}
+            # Use ${AppRepoUrl}, ${APP_DIR} (no !) - substituted by Fn::Sub
+            echo "Cloning application from ${AppRepoUrl} into ${APP_DIR}..."
+            git clone ${AppRepoUrl} ${APP_DIR}
 
-              # Use ${APP_USER}, ${APP_DIR} (no !) - substituted by Fn::Sub
-              echo "Setting ownership of ${APP_DIR} to ${APP_USER}..."
-              chown -R ${APP_USER}:${APP_USER} ${APP_DIR}
+            # Use ${APP_USER}, ${APP_DIR} (no !) - substituted by Fn::Sub
+            echo "Setting ownership of ${APP_DIR} to ${APP_USER}..."
+            chown -R ${APP_USER}:${APP_USER} ${APP_DIR}
 
-              echo "Changing directory to application root ${APP_DIR}..."
-              cd "${APP_DIR}" # <<<--- Ensure current directory is the app root
+            echo "Changing directory to application root ${APP_DIR}..."
+            cd "${APP_DIR}" # <<<--- Ensure current directory is the app root
 
-              if [ -d "infra/install" ]; then
-                  find "infra/install" -maxdepth 1 -type f -name '[0-9]*_*.sh' | sort | while IFS= read -r script_path; do
-                      if [ -f "$script_path" ]; then
-                          echo "--- Running script: $script_path ---"
-                          # Execute script using its full path, current dir remains APP_DIR
-                          bash "$script_path"
-                          echo "--- Finished script: $script_path ---"
-                      else
-                          echo "Skipping non-file item found by find: $script_path"
-                      fi
-                  done
-                  echo "Finished executing setup scripts."
-              fi
+            if [ -d "infra/install" ]; then
+                find "infra/install" -maxdepth 1 -type f -name '[0-9]*_*.sh' | sort | while IFS= read -r script_path; do
+                    if [ -f "$script_path" ]; then
+                        echo "--- Running script: $script_path ---"
+                        # Execute script using its full path, current dir remains APP_DIR
+                        bash "$script_path"
+                        echo "--- Finished script: $script_path ---"
+                    else
+                        echo "Skipping non-file item found by find: $script_path"
+                    fi
+                done
+                echo "Finished executing setup scripts."
+            fi
 
-              # --- UserData Finish ---
-              echo "UserData script finished."
-              echo "**********************************************************************"
-              echo "***                     SETUP COMPLETE (Review Logs)                 ***"
-              echo "**********************************************************************"
-              echo "*** UserData attempted to run scripts in infra/install."
-              echo "*** 1. SSH into the instance: ssh -i <key.pem> ubuntu@<public_ip>  ***"
-              echo "*** 2. Check UserData log: sudo tail -n 200 /var/log/user-data.log ***"
-              echo "*** 3. Check PostgreSQL status: sudo systemctl status postgresql   ***"
-              echo "*** 4. Check application user/db setup (consult script logs/output). ***"
-              # Use ${APP_DIR} (substituted by Fn::Sub)
-              echo "*** 5. Verify .env file: sudo cat ${APP_DIR}/.env                  ***"
-              echo "*** Next steps: Run remaining setup scripts if needed (e.g., Node install, service setup)."
-              echo "**********************************************************************"
-            # Variable map for Fn::Sub - Define APP_USER and APP_DIR here
-            - {
-                AppRepoUrl: !Ref AppRepoUrl,
-                APP_USER: "rdapapp",
-                APP_DIR: "/srv/rdap-cache-service"
-              }
+            # --- UserData Finish ---
+            echo "UserData script finished."
+            echo "**********************************************************************"
+            echo "***                     SETUP COMPLETE (Review Logs)                 ***"
+            echo "**********************************************************************"
+            echo "*** UserData attempted to run scripts in infra/install."
+            echo "*** 1. SSH into the instance: ssh -i <key.pem> ubuntu@<public_ip>  ***"
+            echo "*** 2. Check UserData log: sudo tail -n 200 /var/log/user-data.log ***"
+            echo "*** 3. Check PostgreSQL status: sudo systemctl status postgresql   ***"
+            echo "*** 4. Check application user/db setup (consult script logs/output). ***"
+            # Use ${APP_DIR} (substituted by Fn::Sub)
+            echo "*** 5. Verify .env file: sudo cat ${APP_DIR}/.env                  ***"
+            echo "*** Next steps: Run remaining setup scripts if needed (e.g., Node install, service setup)."
+            echo "**********************************************************************"
+          # Variable map for Fn::Sub - Define APP_USER and APP_DIR here
+          - {
+              AppRepoUrl: !Ref AppRepoUrl,
+              APP_USER: 'rdapapp',
+              APP_DIR: '/srv/rdap-cache-service',
+            }
 
 Outputs:
   InstanceId:
-    Description: "The ID of the EC2 instance"
+    Description: 'The ID of the EC2 instance'
     Value: !Ref EC2Instance
   PublicIp:
-    Description: "The public IP address of the EC2 instance"
+    Description: 'The public IP address of the EC2 instance'
     Value: !GetAtt EC2Instance.PublicIp
