@@ -68,3 +68,17 @@ export type BootstrapCache = {
     ipv6: BootstrapData | null;
     lastUpdated: Date | null;
 };
+
+// --- Helper Type Guards ---
+export function isRdapError(obj: any): obj is RdapError {
+    return typeof obj === 'object' && obj !== null && typeof obj.errorCode === 'number' && Array.isArray(obj.description);
+}
+
+export function isRdapDomainResponse(obj: any): obj is RdapDomainResponse {
+    return typeof obj === 'object' && obj !== null && obj.objectClassName === 'domain';
+}
+
+export function isRdapIpNetworkResponse(obj: any): obj is RdapIpNetworkResponse {
+    return typeof obj === 'object' && obj !== null && obj.objectClassName === 'ip network';
+}
+// --- End Helper Type Guards ---

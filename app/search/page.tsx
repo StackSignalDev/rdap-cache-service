@@ -2,79 +2,101 @@
 "use client";
 
 import { useState } from 'react';
+// Import the actual RDAP response types and RdapError from your types file
+import { RdapDomainResponse, RdapIpNetworkResponse, RdapError } from '@/lib/types'; // Adjust path if needed
 
-// Define a type for the expected API response data (adjust based on your actual data)
-type RdapResult = {
-  // Example properties - replace with your actual Prisma model fields
-  id: string;
-  query: string;
-  type: 'domain' | 'ip';
-  data: any; // Or a more specific type for the RDAP JSON
-  createdAt: string;
-  updatedAt: string;
-};
+// Type for the successful API response (RDAP data + the 'type' field added by the API)
+type ApiSuccessResponse = (RdapDomainResponse | RdapIpNetworkResponse) & { type: 'domain' | 'ip' };
+
+// Type for the API error response (Matches RdapError structure, potentially with a generic message)
+type ApiErrorResponse = RdapError & { message?: string }; // message for non-RDAP errors
 
 export default function Search() {
   const [searchTerm, setSearchTerm] = useState('');
-  // --- New State Variables ---
-  const [results, setResults] = useState<RdapResult | null>(null); // To store the fetched result
-  const [isLoading, setIsLoading] = useState(false); // To show a loading indicator
-  const [error, setError] = useState<string | null>(null); // To show error messages
-  // --- End New State Variables ---
+  // --- Use the corrected types for state ---
+  const [results, setResults] = useState<ApiSuccessResponse | null>(null); // Store the successful RDAP response + type
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | ApiErrorResponse | null>(null); // Can store string or the error object
+  // --- End State Variables ---
 
   const handleSearch = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!searchTerm.trim()) { // Don't search if term is empty or just whitespace
+    const trimmedSearchTerm = searchTerm.trim(); // Use a trimmed version
+    if (!trimmedSearchTerm) {
         setError("Please enter an IP address or domain name.");
         setResults(null);
         return;
     }
 
-    setIsLoading(true); // Set loading state to true
-    setError(null);     // Clear previous errors
-    setResults(null);   // Clear previous results
+    setIsLoading(true);
+    setError(null);
+    setResults(null);
 
     try {
-      // Construct the API URL with the search term as a query parameter
-      const apiUrl = `/api/rdap?query=${encodeURIComponent(searchTerm.trim())}`;
+      const apiUrl = `/api/rdap?query=${encodeURIComponent(trimmedSearchTerm)}`;
       const response = await fetch(apiUrl);
 
+      // Try to parse JSON regardless of response.ok to get error details
+      const responseData = await response.json().catch(() => ({
+           message: `Request failed with status ${response.status}. Could not parse error response.`
+      }));
+
       if (!response.ok) {
-        // Handle HTTP errors (e.g., 404 Not Found, 500 Internal Server Error)
-        const errorData = await response.json().catch(() => ({ message: 'An error occurred' })); // Try to parse error JSON
-        throw new Error(errorData.message || `HTTP error! Status: ${response.status}`);
+        // Throw the parsed error data or a generic message
+        throw responseData; // Throw the parsed JSON error (likely ApiErrorResponse)
       }
 
-      const data: RdapResult = await response.json(); // Parse the JSON response
-      setResults(data); // Update the results state
+      // --- Success: Assert the correct type ---
+      const data: ApiSuccessResponse = responseData;
+      setResults(data);
 
-    } catch (err) {
+    } catch (err: any) { // Catch 'any' and then check its type
       console.error("Search failed:", err);
-      // Set error state - check if err is an Error object
-      if (err instanceof Error) {
-        setError(err.message);
+      // Set error state - store the object if it looks like ApiErrorResponse, otherwise store message
+      if (typeof err === 'object' && err !== null && (err.errorCode || err.message)) {
+           setError(err as ApiErrorResponse); // Store the error object
+      } else if (err instanceof Error) {
+        setError(err.message); // Store just the message string
       } else {
         setError('An unknown error occurred during the search.');
       }
-      setResults(null); // Ensure results are cleared on error
+      setResults(null);
     } finally {
-      setIsLoading(false); // Set loading state back to false, regardless of success/error
+      setIsLoading(false);
     }
   };
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(event.target.value);
-    // Optionally clear error/results when user starts typing again
     if (error) setError(null);
     if (results) setResults(null);
   };
+
+  // Helper to render error messages more informatively
+  const renderError = () => {
+    if (!error) return null;
+    let displayError: string;
+    if (typeof error === 'string') {
+        displayError = error;
+    } else {
+        // Format the ApiErrorResponse object
+        displayError = `${error.title || 'Error'} (Code: ${error.errorCode || 'N/A'}): ${error.description?.join(' ') || error.message || 'No details available.'}`;
+    }
+    return (
+        <div className="text-center text-red-600 bg-red-100 border border-red-400 rounded p-3">
+            Error: {displayError}
+        </div>
+    );
+  };
+
 
   return (
     <div className="p-8 font-[family-name:var(--font-geist-sans)]">
       <h1 className="text-2xl font-semibold mb-6 text-center">Search RDAP Cache</h1>
 
       <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2">
-        <label htmlFor="search-input" className="sr-only">
+        {/* ... (Input and Button remain the same) ... */}
+         <label htmlFor="search-input" className="sr-only">
           Search IP or Domain
         </label>
         <input
@@ -95,38 +117,36 @@ export default function Search() {
         </button>
       </form>
 
-      {/* --- Display Area --- */}
-      <div className="mt-10 max-w-2xl mx-auto">
-        {/* Loading Indicator */}
+      <div className="mt-10 max-w-4xl mx-auto"> {/* Increased max-width for results */}
         {isLoading && (
           <div className="text-center text-gray-500">Loading...</div>
         )}
 
-        {/* Error Message */}
-        {error && (
-          <div className="text-center text-red-600 bg-red-100 border border-red-400 rounded p-3">
-            Error: {error}
-          </div>
-        )}
+        {/* Use the renderError helper */}
+        {renderError()}
 
-        {/* Results Display */}
+        {/* --- Corrected Results Display --- */}
         {results && !isLoading && !error && (
           <div className="bg-white shadow-md rounded p-6 border border-gray-200">
-            <h2 className="text-xl font-semibold mb-4">Result for: {results.query}</h2>
-            <pre className="bg-gray-50 p-4 rounded overflow-x-auto text-sm">
-              {/* Display the raw RDAP data nicely formatted */}
-              {JSON.stringify(results.data, null, 2)}
+            {/* Use searchTerm from state, as API doesn't return it */}
+            <h2 className="text-xl font-semibold mb-4">Result for: {searchTerm.trim()}</h2>
+            <pre className="bg-gray-100 p-4 rounded overflow-x-auto text-sm border">
+              {/* Display the entire 'results' object (which is the RDAP data + type) */}
+              {JSON.stringify(results, null, 2)}
             </pre>
+            {/* Display the 'type' field which IS returned by the API */}
             <p className="text-xs text-gray-500 mt-4">Type: {results.type}</p>
-            <p className="text-xs text-gray-500">Cached At: {new Date(results.updatedAt).toLocaleString()}</p>
+            {/* Removed 'Cached At' as it's not returned by the API */}
           </div>
         )}
-         {/* Initial state / No search yet */}
-         {!isLoading && !error && !results && !searchTerm && (
-             <p className="text-center text-gray-500">Enter an IP or domain to search.</p>
+        {/* --- End Corrected Results Display --- */}
+
+         {!isLoading && !error && !results && (
+             <p className="text-center text-gray-500 pt-4">
+                {searchTerm ? 'No results found.' : 'Enter an IP or domain to search.'}
+             </p>
          )}
       </div>
-      {/* --- End Display Area --- */}
     </div>
   );
 }

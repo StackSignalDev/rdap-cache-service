@@ -1,7 +1,19 @@
+// lib/rdapClient.ts
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { URL } from 'url';
 import ipaddr from 'ipaddr.js'; // Use the installed library
-import { BootstrapCache, BootstrapData, BootstrapServiceEntry, RdapDomainResponse, RdapError, RdapIpNetworkResponse, RdapQueryResult } from './types';
+import {
+    BootstrapCache,
+    BootstrapData,
+    BootstrapServiceEntry,
+    isRdapDomainResponse,
+    isRdapError,
+    isRdapIpNetworkResponse,
+    RdapDomainResponse,
+    RdapError,
+    RdapIpNetworkResponse,
+    RdapQueryResult
+} from './types'; // Assuming types.ts is in the same directory
 
 const IANA_BOOTSTRAP_URLS = {
     domain: 'https://data.iana.org/rdap/dns.json',
@@ -12,27 +24,10 @@ const IANA_BOOTSTRAP_URLS = {
 const DEFAULT_USER_AGENT = 'RDAPCache/1.0 (Node.js)'; // Customize URL
 const DEFAULT_TIMEOUT = 10000; // 10 seconds
 const MAX_REDIRECTS = 5;
-const MAX_RETRIES = 2; // Slightly fewer retries perhaps
+const MAX_RETRIES = 2;
 
 // Helper for exponential backoff
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Add these functions (e.g., within the RDAPClient class or outside)
-
-export function isRdapError(obj: any): obj is RdapError {
-    // Check if it looks like our defined RdapError type
-    return typeof obj === 'object' && obj !== null && typeof obj.errorCode === 'number' && Array.isArray(obj.description);
-}
-
-export function isRdapDomainResponse(obj: any): obj is RdapDomainResponse {
-    // Check for the specific objectClassName for domains
-    return typeof obj === 'object' && obj !== null && obj.objectClassName === 'domain';
-}
-
-export function isRdapIpNetworkResponse(obj: any): obj is RdapIpNetworkResponse {
-    // Check for the specific objectClassName for IP networks
-    return typeof obj === 'object' && obj !== null && obj.objectClassName === 'ip network';
-}
 
 export class RDAPClient {
     private axiosInstance: AxiosInstance;
@@ -67,41 +62,55 @@ export class RDAPClient {
          // Immediately try to load bootstrap data in the background, non-blocking
         this.ensureBootstrapData().catch(err => {
             console.error("Initial background bootstrap load failed:", err.message);
-            // Decide if this is critical. Maybe retry later?
         });
     }
 
-    // --- Bootstrap Methods (Adapt from JS version using ipaddr.js) ---
+    // --- Bootstrap Methods ---
     private async _fetchBootstrapFile(url: string): Promise<BootstrapData> {
-         // ... (Implementation similar to JS version, using axios)
-         // Make sure to return data conforming to BootstrapData type
-         console.log(`Fetching bootstrap data from ${url}...`);
-         const response = await axios.get<BootstrapData>(url, { timeout: this.timeout });
-         if (response.status === 200 && response.data?.services && response.data?.version) {
-             return response.data;
-         }
-         throw new Error(`Failed to fetch or parse bootstrap file ${url}: Status ${response.status}`);
-    }
+        console.log(`Fetching bootstrap data from ${url}...`);
+        // Fetch as raw text first to inspect
+        const rawResponse = await axios.get<string>(url, {
+            timeout: this.timeout,
+            transformResponse: [(data) => data] // Prevent Axios from auto-parsing JSON
+        });
+
+        console.log(`Fetched ${url}. Status: ${rawResponse.status}. Size: ${rawResponse.data.length} bytes.`);
+
+        // Now parse manually
+        try {
+            const jsonData: BootstrapData = JSON.parse(rawResponse.data);
+            if (rawResponse.status === 200 && jsonData?.services && jsonData?.version) {
+                // Log how many services were parsed for dns.json
+                if (url === IANA_BOOTSTRAP_URLS.domain) {
+                    console.log(`Parsed ${jsonData.services.length} domain services from ${url}.`);
+                }
+                return jsonData;
+            }
+            throw new Error(`Parsed data missing 'services' or 'version' field from ${url}`);
+        } catch (parseError: any) {
+            console.error(`Failed to parse JSON from ${url}: ${parseError.message}`);
+            throw new Error(`Failed to parse JSON from ${url}`);
+        }
+   }
+
 
     async ensureBootstrapData(forceRefresh = false): Promise<BootstrapCache> {
-        // If cache is fresh and not forcing refresh, return it
         if (this.bootstrapCache.lastUpdated && !forceRefresh) {
             const now = new Date();
             const ageHours = (now.getTime() - this.bootstrapCache.lastUpdated.getTime()) / (1000 * 60 * 60);
-            if (ageHours < 24) { // Example: refresh if older than 24 hours
+            if (ageHours < 24) {
                 return this.bootstrapCache;
             } else {
                 console.log("Bootstrap data is older than 24 hours, initiating refresh.");
-                forceRefresh = true; // Force refresh if stale
+                forceRefresh = true;
             }
         }
 
         if (this.bootstrapLoadingPromise) {
-            return this.bootstrapLoadingPromise; // Return existing loading promise
+            return this.bootstrapLoadingPromise;
         }
 
-        // Only proceed with loading if needed (stale or forced)
-         if (!this.bootstrapCache.lastUpdated || forceRefresh) {
+        if (!this.bootstrapCache.lastUpdated || forceRefresh) {
             this.bootstrapLoadingPromise = (async () => {
                 try {
                     console.log("Loading/Refreshing IANA Bootstrap Data...");
@@ -121,8 +130,6 @@ export class RDAPClient {
                     return this.bootstrapCache;
                 } catch (error: any) {
                     console.error("Failed to load bootstrap data:", error.message);
-                    // Keep stale data if available? Or clear? For now, clear on failure.
-                    // this.bootstrapCache = { domain: null, ipv4: null, ipv6: null, asn: null, lastUpdated: this.bootstrapCache.lastUpdated }; // Keep old date?
                     throw new Error(`Failed to initialize/refresh bootstrap data: ${error.message}`);
                 } finally {
                     this.bootstrapLoadingPromise = null;
@@ -130,14 +137,13 @@ export class RDAPClient {
             })();
             return this.bootstrapLoadingPromise;
         } else {
-             // Should not be reached if logic above is correct, but return current cache as fallback
              return Promise.resolve(this.bootstrapCache);
         }
     }
 
     private async _findServerUrl(query: string, queryType: 'domain' | 'ip'): Promise<string | null> {
-        const bootstrap = await this.ensureBootstrapData(); // Ensure data is loaded/fresh
-        if (!bootstrap.lastUpdated) { // Check if loading failed critically
+        const bootstrap = await this.ensureBootstrapData();
+        if (!bootstrap.lastUpdated) {
              throw new Error("Bootstrap data is not available.");
         }
 
@@ -149,16 +155,27 @@ export class RDAPClient {
             switch (queryType) {
                 case 'domain':
                     services = bootstrap.domain?.services;
-                    if (!services) break;
+                    if (!services) {
+                        console.error("DEBUG: Breaking because services is null/undefined for domain");
+                        break;
+                    }
                     const labels = query.toLowerCase().split('.');
-                    for (let i = 0; i < labels.length - 1; i++) {
+                    // --- CORRECTED LOOP CONDITION ---
+                    for (let i = 0; i < labels.length; i++) { // Ensure we check the last label too
                         const tld = labels.slice(i).join('.');
+                        console.log(`DEBUG: Checking TLD: ${tld}`);
+
                         const entry = services.find(service => service[0].includes(tld));
+
                         if (entry) {
                             matchKey = tld;
                             baseUrls = entry[1];
-                            break;
+                            console.log(`DEBUG: Found match for ${tld}! Base URLs: ${baseUrls}`);
+                            break; // Found match, exit loop
                         }
+                    }
+                    if (!baseUrls) {
+                        console.log(`DEBUG: No match found after checking all labels for ${query}`);
                     }
                     break;
 
@@ -167,39 +184,47 @@ export class RDAPClient {
                     try {
                          addr = ipaddr.parse(query);
                          services = addr.kind() === 'ipv6' ? bootstrap.ipv6?.services : bootstrap.ipv4?.services;
-                    } catch (e) {
+                    } catch (e: any) {
+                        // Throw specific error for invalid format
                         throw new Error(`Invalid IP address format: ${query}`);
                     }
-                    if (!services) break;
+                    if (!services) {
+                         console.error(`DEBUG: Breaking because IP services are null/undefined for ${addr.kind()}`);
+                         break;
+                    }
 
                     const entryIp = services.find(service => {
                         return service[0].some(cidrStr => {
                             try {
                                 const range = ipaddr.parseCIDR(cidrStr);
-                                // ipaddr.js match returns [addr, bits] or throws
-                                return addr!.match(range);
-                            } catch (e) { return false; }
+                                return addr!.match(range); // Use non-null assertion as addr is checked above
+                            } catch (e) { return false; } // Ignore invalid CIDRs in bootstrap file
                         });
                     });
                      if (entryIp) {
-                        matchKey = query;
+                        matchKey = query; // Or maybe the matched CIDR? Query seems fine.
                         baseUrls = entryIp[1];
+                        console.log(`DEBUG: Found IP match for ${query}! Base URLs: ${baseUrls}`);
+                    } else {
+                         console.log(`DEBUG: No matching IP range found for ${query}`);
                     }
                     break;
             }
         } catch (parseError: any) {
              console.error(`Error processing bootstrap lookup for '${query}' (${queryType}): ${parseError.message}`);
-             throw parseError;
+             throw parseError; // Re-throw to be caught by public methods
         }
 
         if (!baseUrls || baseUrls.length === 0) {
+            // Log as warning, return null to indicate bootstrap failure for this query
             console.warn(`No RDAP bootstrap server found for ${queryType} ${matchKey || query}`);
-            return null; // Indicate bootstrap failure for this query
+            return null;
         }
 
-        // Prefer HTTPS, allow HTTP as fallback (consider making this configurable)
+        // Prefer HTTPS, allow HTTP as fallback
         const httpsUrl = baseUrls.find(url => url.toLowerCase().startsWith('https://'));
         if (httpsUrl) return httpsUrl;
+
         const httpUrl = baseUrls.find(url => url.toLowerCase().startsWith('http://'));
         if (httpUrl) {
              console.warn(`Using non-HTTPS RDAP URL: ${httpUrl}`);
@@ -207,32 +232,36 @@ export class RDAPClient {
         }
 
         console.error(`No suitable HTTPS or HTTP URL found in bootstrap entry for ${queryType} ${matchKey || query}`);
-        return null;
+        return null; // No suitable URL found
     }
 
 
-    // --- Request Method (_makeRequest - Adapt from JS version) ---
-    // Use AxiosError type guard for better error handling
-    private async _makeRequest(url: string, redirectCount = 0, attempt = 0): Promise<RdapQueryResult> { // Return type 'any' for now, could be more specific RDAP object type
+    // --- Request Method (_makeRequest) ---
+    private async _makeRequest(url: string, redirectCount = 0, attempt = 0): Promise<RdapQueryResult> {
         if (redirectCount > this.maxRedirects) {
-            throw new Error(`Too many redirects encountered fetching ${url}`);
+            // Return specific error instead of throwing generic one
+            return {
+                errorCode: 508, // Loop Detected (or choose another appropriate 5xx)
+                title: "Too Many Redirects",
+                description: [`Exceeded maximum redirect limit (${this.maxRedirects}) fetching ${url}`]
+            };
         }
 
         console.log(`RDAPClient: Attempt ${attempt + 1}/${this.maxRetries + 1}: Requesting ${url}`);
 
         try {
-            const response = await this.axiosInstance.get(url);
+            const response = await this.axiosInstance.get<RdapQueryResult>(url); // Add type hint
             // Success (2xx) already validated by axiosInstance config
              if (response.headers['content-type']?.includes('application/rdap+json')) {
                 return response.data; // Success!
             } else {
                 console.warn(`RDAP server returned success status but unexpected Content-Type: ${response.headers['content-type']} for ${url}`);
-                // Decide: throw or return data anyway? Let's return it for now.
+                // Return data anyway, assuming it might still be useful RDAP JSON
                 return response.data;
             }
         } catch (error) {
              if (axios.isAxiosError(error)) {
-                const axiosError = error as AxiosError<any>; // Type assertion
+                const axiosError = error as AxiosError<any>; // Keep 'any' here for responseData flexibility
                 const response = axiosError.response;
                 const request = axiosError.request;
 
@@ -240,22 +269,27 @@ export class RDAPClient {
                     // Server responded with a status code outside the 2xx range
                     const status = response.status;
                     const headers = response.headers;
-                    const responseData = response.data;
+                    const responseData = response.data; // Could be RDAP error JSON or something else
 
                     // Redirects (3xx)
                     if (status >= 300 && status < 400 && headers.location) {
                          const location = headers.location;
                          console.log(`RDAPClient: Following redirect (${status}) from ${url} to ${location}`);
-                         const nextUrl = new URL(location, url).toString();
-                         return this._makeRequest(nextUrl, redirectCount + 1, 0); // Reset attempt count
+                         try {
+                             const nextUrl = new URL(location, url).toString();
+                             return this._makeRequest(nextUrl, redirectCount + 1, 0); // Reset attempt count
+                         } catch (urlError: any) {
+                              console.error(`RDAPClient: Invalid redirect URL "${location}" received from ${url}: ${urlError.message}`);
+                              return { errorCode: 502, title: "Bad Gateway", description: [`Invalid redirect URL received from upstream RDAP server: ${location}`] };
+                         }
                     }
 
                     // Not Found (404) - Valid RDAP response
                     if (status === 404) {
                         console.log(`RDAPClient: RDAP Not Found (404) for ${url}`);
                         // Return the RDAP error object if server provided one, else a generic one
-                        if (responseData && typeof responseData === 'object') return responseData;
-                        return { errorCode: 404, title: "Not Found", description: ["The RDAP server could not find the requested resource."] } as RdapError;
+                        if (responseData && typeof responseData === 'object' && responseData.errorCode) return responseData as RdapError;
+                        return { errorCode: 404, title: "Not Found", description: ["The RDAP server could not find the requested resource."] };
                     }
 
                     // Rate Limit (429)
@@ -271,17 +305,18 @@ export class RDAPClient {
                             return this._makeRequest(url, redirectCount, attempt + 1);
                          } else {
                              console.error(`RDAPClient: Rate limited (429) on ${url} after ${attempt + 1} attempts.`);
-                             // Return RDAP error object if available
-                             if (responseData && typeof responseData === 'object') return responseData;
-                             throw new Error(`Rate limited (429) on ${url} after max retries.`); // Or return specific error object
+                             // Return RDAP error object if available, else specific error
+                             if (responseData && typeof responseData === 'object' && responseData.errorCode) return responseData as RdapError;
+                             return { errorCode: 429, title: "Too Many Requests", description: [`Rate limited on ${url} after max retries.`] };
                          }
                     }
 
                     // Other Client Errors (4xx) - Generally not retryable
                     if (status >= 400 && status < 500) {
                         console.error(`RDAPClient: Client Error ${status} for ${url}:`, responseData || axiosError.message);
-                        if (responseData && typeof responseData === 'object') return responseData; // Return RDAP error
-                         throw new Error(`Client Error ${status} for ${url}`); // Or return generic error object
+                        if (responseData && typeof responseData === 'object' && responseData.errorCode) return responseData as RdapError;
+                         // Return a generic client error structure
+                         return { errorCode: status, title: `Client Error: ${status}`, description: [`An error occurred while requesting ${url}.`, axiosError.message] };
                     }
 
                     // Server Errors (5xx) - Retryable
@@ -293,12 +328,13 @@ export class RDAPClient {
                             return this._makeRequest(url, redirectCount, attempt + 1);
                         } else {
                             console.error(`RDAPClient: Server Error (${status}) on ${url} after ${attempt + 1} attempts.`);
-                            if (responseData && typeof responseData === 'object') return responseData;
-                            throw new Error(`Server Error ${status} on ${url} after max retries.`);
+                            if (responseData && typeof responseData === 'object' && responseData.errorCode) return responseData as RdapError;
+                             return { errorCode: status, title: `Server Error: ${status}`, description: [`Received server error from ${url} after max retries.`] };
                         }
                     }
                      // Fallback for unexpected status codes
-                     throw new Error(`Unhandled HTTP status ${status} for ${url}`);
+                     console.error(`RDAPClient: Unhandled HTTP status ${status} for ${url}:`, responseData || axiosError.message);
+                     return { errorCode: status, title: `Unhandled HTTP Status: ${status}`, description: [`Received an unexpected HTTP status code from ${url}.`] };
 
                 } else if (request) {
                     // Network error (no response received) - Retryable
@@ -308,14 +344,19 @@ export class RDAPClient {
                          await delay(waitTimeMs);
                          return this._makeRequest(url, redirectCount, attempt + 1);
                      } else {
-                         throw new Error(`Network error for ${url} after ${attempt + 1} attempts: ${axiosError.message}`);
+                         console.error(`RDAPClient: Network error for ${url} after ${attempt + 1} attempts: ${axiosError.message}`);
+                         return { errorCode: 504, title: "Gateway Timeout", description: [`Network error connecting to ${url} after max retries: ${axiosError.message}`] };
                      }
+                } else {
+                    // Setup error or non-Axios error
+                    console.error(`RDAPClient: Error during request setup or processing for ${url}:`, error);
+                    return { errorCode: 500, title: "Internal Client Error", description: [`An unexpected error occurred before the request could be sent to ${url}: ${error instanceof Error ? error.message : String(error)}`] };
                 }
+             } else {
+                 // Non-Axios error
+                 console.error(`RDAPClient: Non-Axios error during request processing for ${url}:`, error);
+                 return { errorCode: 500, title: "Internal Client Error", description: [`An unexpected non-HTTP error occurred while processing the request for ${url}: ${error instanceof Error ? error.message : String(error)}`] };
              }
-
-             // Non-Axios error or setup error
-             console.error(`RDAPClient: Error during request setup or processing for ${url}:`, error);
-             throw error; // Re-throw original error
         }
     }
 
@@ -327,16 +368,14 @@ export class RDAPClient {
                 return { errorCode: 404, title: "Bootstrap Failed", description: [`No RDAP server found for the TLD of ${domainName} in IANA bootstrap data.`] };
             }
             const queryUrl = new URL(`domain/${encodeURIComponent(domainName)}`, baseUrl).toString();
-            const result = await this._makeRequest(queryUrl); // result is RdapQueryResult
+            const result = await this._makeRequest(queryUrl);
 
-            // Use type guards to ensure the correct type is returned
             if (isRdapDomainResponse(result) || isRdapError(result)) {
-                return result; // Now TypeScript knows it's RdapDomainResponse or RdapError
+                return result;
             } else {
-                // Handle unexpected response type from the server
                 console.error(`RDAPClient: Unexpected response type received for domain query ${domainName}:`, result);
                 return {
-                    errorCode: 500, // Or a more specific code?
+                    errorCode: 500,
                     title: "Client Response Error",
                     description: ["Received unexpected object shape from RDAP server for a domain query."]
                 };
@@ -344,11 +383,9 @@ export class RDAPClient {
 
         } catch (error: any) {
             console.error(`RDAPClient: Failed to query domain ${domainName}:`, error.message);
-             // Check if the caught error itself is already an RdapError structure from _makeRequest
-             if (isRdapError(error)) {
+             if (isRdapError(error)) { // Check if error from _findServerUrl/ensureBootstrapData is already RdapError
                 return error;
              }
-             // Otherwise, return a generic client error
              return {
                 errorCode: 500,
                 title: "Client Query Error",
@@ -359,26 +396,20 @@ export class RDAPClient {
 
      async queryIp(ipAddress: string): Promise<RdapIpNetworkResponse | RdapError> {
         try {
-            if (!ipaddr.isValid(ipAddress)) {
-                // Return an RdapError for invalid input directly
-                 return {
-                    errorCode: 400, // Bad Request
-                    title: "Invalid Input",
-                    description: [`Invalid IP address format provided: ${ipAddress}`]
-                 };
-            }
+            // Validate IP format before bootstrap lookup (ipaddr.parse handles this in _findServerUrl now)
+            // if (!ipaddr.isValid(ipAddress)) { // Keep validation maybe? Or rely on _findServerUrl's try/catch
+            //      return { errorCode: 400, title: "Invalid Input", description: [`Invalid IP address format provided: ${ipAddress}`] };
+            // }
             const baseUrl = await this._findServerUrl(ipAddress, 'ip');
              if (!baseUrl) {
                 return { errorCode: 404, title: "Bootstrap Failed", description: [`No RDAP server found for IP address ${ipAddress} in IANA bootstrap data.`] };
             }
             const queryUrl = new URL(`ip/${encodeURIComponent(ipAddress)}`, baseUrl).toString();
-            const result = await this._makeRequest(queryUrl); // result is RdapQueryResult
+            const result = await this._makeRequest(queryUrl);
 
-            // Use type guards to ensure the correct type is returned
             if (isRdapIpNetworkResponse(result) || isRdapError(result)) {
-                return result; // Now TypeScript knows it's RdapIpNetworkResponse or RdapError
+                return result;
             } else {
-                 // Handle unexpected response type from the server
                  console.error(`RDAPClient: Unexpected response type received for IP query ${ipAddress}:`, result);
                  return {
                      errorCode: 500,
@@ -388,11 +419,13 @@ export class RDAPClient {
             }
         } catch (error: any) {
             console.error(`RDAPClient: Failed to query IP ${ipAddress}:`, error.message);
-             // Check if the caught error itself is already an RdapError structure from _makeRequest
+             // Handle specific error from _findServerUrl if IP was invalid
+             if (error.message?.startsWith('Invalid IP address format')) {
+                 return { errorCode: 400, title: "Invalid Input", description: [error.message] };
+             }
              if (isRdapError(error)) {
                 return error;
              }
-             // Otherwise, return a generic client error
              return {
                 errorCode: 500,
                 title: "Client Query Error",

@@ -2,19 +2,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma'; // Adjust import path if needed
 import ipaddr from 'ipaddr.js'; // Library to help parse/validate IPs
-import { IpCache, DomainCache } from '@prisma/client'; // Import the generated types
+import { IpCache, DomainCache, Prisma } from '@prisma/client'; // Import the generated types and Prisma namespace
 
 // Import RDAP Client and necessary types/guards
-import { rdapClientInstance, isRdapError, isRdapDomainResponse, isRdapIpNetworkResponse } from '@/lib/rdapClient'; // Adjust path
-import {
-    RdapQueryResult,
-    RdapError // Import RdapError type itself
-} from '@/lib/types'; // Adjust path
+import { rdapClientInstance } from '@/lib/rdapClient'; // Adjust path
 
-// Helper function to check if a string is a valid single IP address (v4 or v6)
+import {
+  isRdapError, 
+  isRdapDomainResponse, 
+  isRdapIpNetworkResponse,
+  RdapQueryResult,
+  RdapError
+} from '@/lib/types';
+
 function isIpAddress(query: string): boolean {
   try {
-    // Use ipaddr.process to handle both single IPs and CIDRs for initial detection
     ipaddr.process(query);
     return true;
   } catch (e) {
@@ -22,24 +24,12 @@ function isIpAddress(query: string): boolean {
   }
 }
 
-// Helper function to check if a string looks like a domain name
 function isDomain(query: string): boolean {
   return query.includes('.') &&
-         !/^[.-]|[-.]$/.test(query) &&
-         !isIpAddress(query) && // Ensure it's not parseable as an IP/CIDR
-         /^[a-zA-Z0-9.-]+$/.test(query);
+    !/^[.-]|[-.]$/.test(query) &&
+    !isIpAddress(query) && 
+    /^[a-zA-Z0-9.-]+$/.test(query);
 }
-
-// Helper to check if a string is specifically CIDR notation
-function isCidr(query: string): boolean {
-    try {
-        ipaddr.parseCIDR(query);
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -61,40 +51,40 @@ export async function GET(request: NextRequest) {
 
     // --- Determine Query Type and Search Appropriate Table ---
     if (isIpAddress(searchTerm)) { // Checks for IP or CIDR format
-        queryType = 'ip';
-        console.log(`API Route: Detected as IP/CIDR. Searching IpCache using containment logic for: ${searchTerm}`);
+      queryType = 'ip';
+      console.log(`API Route: Detected as IP/CIDR. Searching IpCache using containment logic for: ${searchTerm}`);
 
-        try {
-            // Use $queryRaw for IP containment lookup in PostgreSQL
-            const resultsArray = await prisma.$queryRaw<IpCache[]>`
+      try {
+        // Use $queryRaw for IP containment lookup in PostgreSQL
+        const resultsArray = await prisma.$queryRaw<IpCache[]>`
                 SELECT * FROM "IpCache"
                 WHERE "cidrBlock"::inet >>= ${searchTerm}::inet
                 ORDER BY masklen("cidrBlock"::inet) DESC
                 LIMIT 1
             `;
-            result = resultsArray.length > 0 ? resultsArray[0] : null;
-        } catch (dbError: any) {
-            // Handle potential errors if searchTerm is not valid inet format for the query
-            if (dbError.message?.includes('invalid input syntax for type inet')) {
-                 console.warn(`API Route: Invalid inet format for queryRaw: ${searchTerm}. Treating as cache miss.`);
-                 result = null; // Ensure result is null if query fails
-            } else {
-                throw dbError; // Re-throw other DB errors
-            }
+        result = resultsArray.length > 0 ? resultsArray[0] : null;
+      } catch (dbError: any) {
+        // Handle potential errors if searchTerm is not valid inet format for the query
+        if (dbError.message?.includes('invalid input syntax for type inet')) {
+          console.warn(`API Route: Invalid inet format for queryRaw: ${searchTerm}. Treating as cache miss.`);
+          result = null; // Ensure result is null if query fails
+        } else {
+          throw dbError; // Re-throw other DB errors
         }
+      }
 
     } else if (isDomain(searchTerm)) {
-        queryType = 'domain';
-        console.log(`API Route: Detected as Domain. Searching DomainCache for: ${searchTerm.toLowerCase()}`);
-        result = await prisma.domainCache.findUnique({
-            where: { domainName: searchTerm.toLowerCase() },
-        });
+      queryType = 'domain';
+      console.log(`API Route: Detected as Domain. Searching DomainCache for: ${searchTerm.toLowerCase()}`);
+      result = await prisma.domainCache.findUnique({
+        where: { domainName: searchTerm.toLowerCase() },
+      });
     } else {
-        console.log(`API Route: Query type unknown or invalid format for: ${searchTerm}`);
-        return NextResponse.json(
-            { message: `Query format not recognized as a valid IP Address/CIDR or Domain: ${searchTerm}` },
-            { status: 400 }
-        );
+      console.log(`API Route: Query type unknown or invalid format for: ${searchTerm}`);
+      return NextResponse.json(
+        { message: `Query format not recognized as a valid IP Address/CIDR or Domain: ${searchTerm}` },
+        { status: 400 }
+      );
     }
     // --- End Type Determination ---
 
@@ -121,9 +111,9 @@ export async function GET(request: NextRequest) {
       // Check if the live query itself failed or returned an RDAP error object
       if (!liveResult || isRdapError(liveResult)) {
         const errorResponse = liveResult || { // Provide a default if liveResult is null
-            errorCode: 500,
-            title: "RDAP Client Error",
-            description: ["Failed to retrieve live RDAP data."]
+          errorCode: 500,
+          title: "RDAP Client Error",
+          description: ["Failed to retrieve live RDAP data."]
         } as RdapError;
 
         console.error(`API Route: Live RDAP query failed for ${searchTerm}:`, errorResponse);
@@ -142,7 +132,7 @@ export async function GET(request: NextRequest) {
             newCacheEntry = await prisma.ipCache.create({
               data: {
                 cidrBlock: liveResult.cidr, // Use CIDR from RDAP response
-                data: liveResult, // Store the full response JSON
+                data: liveResult as unknown as Prisma.JsonObject, // Store the full response JSON
               },
             });
             console.log(`API Route: Cached IP data with ID: ${newCacheEntry.id}`);
@@ -154,17 +144,17 @@ export async function GET(request: NextRequest) {
           newCacheEntry = await prisma.domainCache.create({
             data: {
               domainName: searchTerm.toLowerCase(), // Use lowercase for consistency
-              data: liveResult, // Store the full response JSON
+              data: liveResult as unknown as Prisma.JsonObject, // Store the full response JSON
             },
           });
-           console.log(`API Route: Cached Domain data with ID: ${newCacheEntry.id}`);
+          console.log(`API Route: Cached Domain data with ID: ${newCacheEntry.id}`);
         }
       } catch (cacheError: any) {
         // Log caching error, but don't fail the request - return the live data anyway
         if (cacheError.code === 'P2002') { // Handle unique constraint violation gracefully
-             console.warn(`API Route: Cache entry for ${searchTerm} likely created by a concurrent request.`);
+          console.warn(`API Route: Cache entry for ${searchTerm} likely created by a concurrent request.`);
         } else {
-            console.error(`API Route: Failed to cache live RDAP result for ${searchTerm}:`, cacheError.message);
+          console.error(`API Route: Failed to cache live RDAP result for ${searchTerm}:`, cacheError.message);
         }
         // Proceed to return the liveResult even if caching failed
       }
@@ -179,9 +169,9 @@ export async function GET(request: NextRequest) {
     console.error(`API Route Error processing ${queryType} query "${searchTerm}":`, error);
     let errorMessage = 'Internal Server Error.';
     if (error instanceof Error) {
-        errorMessage = error.message;
+      errorMessage = error.message;
     }
-     return NextResponse.json(
+    return NextResponse.json(
       { message: 'Internal Server Error while processing RDAP query.', error: errorMessage },
       { status: 500 }
     );
