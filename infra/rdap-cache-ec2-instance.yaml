@@ -40,14 +40,12 @@ Resources:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
       SecurityGroupIds:
-        - Fn::ImportValue: !Sub '${SecurityGroupStackName}-SecurityGroupId' # Keep !Sub here for SG import
+        - Fn::ImportValue: !Sub '${SecurityGroupStackName}-SecurityGroupId'
       Tags:
         - Key: Name
           Value: RDAPCacheInstance
-      # --- UserData using !Sub, defining APP_USER/APP_DIR in VarMap, executing scripts ---
       UserData:
         Fn::Base64:
-          # Use !Sub directly before the list [String, VarMap]
           !Sub
           - |
             #!/bin/bash -xe
@@ -112,7 +110,6 @@ Resources:
             echo "*** 5. Verify .env file: sudo cat ${APP_DIR}/.env                  ***"
             echo "*** Next steps: Run remaining setup scripts if needed (e.g., Node install, service setup)."
             echo "**********************************************************************"
-          # Variable map for Fn::Sub - Define APP_USER and APP_DIR here
           - {
               AppRepoUrl: !Ref AppRepoUrl,
               APP_USER: 'rdapapp',

@@ -19,7 +19,6 @@ Parameters:
   SshCidrIp:
     Type: String
     Description: 'MANDATORY: CIDR block for allowed SSH access (e.g., Your.IP.Address/32). Do not use 0.0.0.0/0!'
-    # No Default value - must be provided at deployment
 
 Resources:
   RdapCacheSecurityGroup:
@@ -29,23 +28,20 @@ Resources:
       GroupDescription: !Ref GroupDescription
       VpcId: !Ref VpcId
       SecurityGroupIngress:
-        # --- SSH Access (Restricted by Parameter) ---
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !Ref SshCidrIp # Uses the parameter value
+          CidrIp: !Ref SshCidrIp
 
-        # --- HTTP Access (Public) ---
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0 # Allow HTTP from anywhere (for redirection)
+          CidrIp: 0.0.0.0/0
 
-        # --- HTTPS Access (Public) ---
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 0.0.0.0/0 # Allow HTTPS from anywhere
+          CidrIp: 0.0.0.0/0
 
       Tags:
         - Key: Name
@@ -54,12 +50,12 @@ Resources:
 Outputs:
   SecurityGroupId:
     Description: 'The ID of the created Security Group'
-    Value: !GetAtt RdapCacheSecurityGroup.GroupId # Export the actual Group ID
+    Value: !GetAtt RdapCacheSecurityGroup.GroupId
     Export:
-      Name: !Sub '${AWS::StackName}-SecurityGroupId' # Make the export name unique
+      Name: !Sub '${AWS::StackName}-SecurityGroupId'
 
   SecurityGroupName:
     Description: 'The Name of the created Security Group'
-    Value: !Ref RdapCacheSecurityGroup # Export the Name (Logical ID resolves to Name here)
+    Value: !Ref RdapCacheSecurityGroup
     Export:
-      Name: !Sub '${AWS::StackName}-SecurityGroupName' # Make the export name unique
+      Name: !Sub '${AWS::StackName}-SecurityGroupName'
