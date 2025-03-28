@@ -9,7 +9,7 @@ const Navbar = () => {
         </Link>
         <div>
           <Link href="/" className="px-3 hover:text-blue-200">Home</Link>
-          {/* Example: <Link href="/search" className="px-3 hover:text-blue-200">Search</Link> */}
+          <Link href="/search" className="px-3 hover:text-blue-200">Search</Link>
         </div>
       </div>
     </nav>
