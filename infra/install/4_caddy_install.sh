@@ -1,19 +1,14 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status.
 set -e
 
-# --- Configuration ---
-NODE_APP_PORT="3000" # Default port your Node.js app listens on
+NODE_APP_PORT="3000"
 CADDYFILE_PATH="/etc/caddy/Caddyfile"
 METADATA_URL="http://169.254.169.254/latest/meta-data/public-ipv4"
-# --- End Configuration ---
 
 echo "--- Starting Caddy Installation for Ubuntu ---"
 
-# --- Attempt to Fetch Public IP ---
 echo "Attempting to fetch EC2 public IP address..."
-# Use curl with a timeout. -s for silent.
 PUBLIC_IP=$(curl -s --connect-timeout 5 "$METADATA_URL")
 
 if [ -z "$PUBLIC_IP" ]; then
@@ -24,9 +19,8 @@ else
     echo "Successfully fetched public IP: $PUBLIC_IP"
     ADDRESS_PLACEHOLDER="$PUBLIC_IP"
 fi
-echo "" # Newline for readability
+echo ""
 
-# --- Install Dependencies and Add Caddy Repository ---
 echo "Updating package list and installing dependencies..."
 sudo apt update
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
@@ -37,16 +31,13 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --d
 echo "Adding Caddy repository..."
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list > /dev/null
 
-# --- Install Caddy ---
 echo "Updating package list again and installing Caddy..."
 sudo apt update
 sudo apt install -y caddy
 
 echo "Caddy installation completed."
 
-# --- Create/Overwrite Basic Caddyfile ---
 echo "Creating basic Caddyfile at $CADDYFILE_PATH using fetched IP (or placeholder)..."
-# Use the fetched IP or the placeholder if fetching failed.
 sudo bash -c "cat > $CADDYFILE_PATH" <<EOF
 # --- Caddyfile ---
 # Automatically populated with Public IP: $ADDRESS_PLACEHOLDER
@@ -92,16 +83,12 @@ echo "Edit with: sudo nano $CADDYFILE_PATH"
 echo "(If your Node app uses a different port, change ${NODE_APP_PORT} too)."
 
 
-# --- Enable and Start Caddy Service ---
 echo "Enabling and starting Caddy service via systemd..."
 sudo systemctl enable caddy
-# Use restart instead of start to ensure it picks up the new config if Caddy was already running somehow
 sudo systemctl restart caddy
 
-# Give Caddy a moment to potentially apply config
 sleep 3
 
-# --- Display Status and Final Instructions ---
 echo ""
 echo "--- Caddy Installation Summary ---"
 sudo systemctl status caddy --no-pager || echo "Warning: Could not get Caddy status."
