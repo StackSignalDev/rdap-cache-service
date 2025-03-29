@@ -88,6 +88,7 @@ export default function Search() {
       const data: ApiSuccessResponse = responseData;
       setResults(data);
       setCacheStatus(data.cacheStatus);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       console.error('Search failed:', err);
       if (

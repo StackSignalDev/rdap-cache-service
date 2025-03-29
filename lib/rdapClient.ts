@@ -98,6 +98,7 @@ export class RDAPClient {
       throw new Error(
         `Parsed data missing 'services' or 'version' field from ${url}`
       );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (parseError: any) {
       console.error(`Failed to parse JSON from ${url}: ${parseError.message}`);
       throw new Error(`Failed to parse JSON from ${url}`);
@@ -142,6 +143,7 @@ export class RDAPClient {
           };
           console.log('Bootstrap data loaded/refreshed successfully.');
           return this.bootstrapCache;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (error: any) {
           console.error('Failed to load bootstrap data:', error.message);
           throw new Error(
@@ -212,7 +214,9 @@ export class RDAPClient {
               addr.kind() === 'ipv6'
                 ? bootstrap.ipv6?.services
                 : bootstrap.ipv4?.services;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } catch (e: any) {
+            console.log(`DEBUG: Failed to parse IP address ${query}: ${e.message}`)
             throw new Error(`Invalid IP address format: ${query}`);
           }
           if (!services) {
@@ -228,6 +232,8 @@ export class RDAPClient {
                 const range = ipaddr.parseCIDR(cidrStr);
                 return addr!.match(range);
               } catch (e) {
+                console.log(
+                  `DEBUG: Failed to parse CIDR ${cidrStr} for IP ${query}: ${e}`)
                 return false;
               }
             });
@@ -243,6 +249,7 @@ export class RDAPClient {
           }
           break;
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (parseError: any) {
       console.error(
         `Error processing bootstrap lookup for '${query}' (${queryType}): ${parseError.message}`
@@ -306,9 +313,10 @@ export class RDAPClient {
         );
 
         return response.data;
-      }
+      }      
     } catch (error) {
       if (axios.isAxiosError(error)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const axiosError = error as AxiosError<any>;
         const response = axiosError.response;
         const request = axiosError.request;
@@ -326,6 +334,7 @@ export class RDAPClient {
             try {
               const nextUrl = new URL(location, url).toString();
               return this._makeRequest(nextUrl, redirectCount + 1, 0);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (urlError: any) {
               console.error(
                 `RDAPClient: Invalid redirect URL "${location}" received from ${url}: ${urlError.message}`
@@ -539,6 +548,7 @@ export class RDAPClient {
           ],
         };
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(
         `RDAPClient: Failed to query domain ${domainName}:`,
@@ -594,6 +604,7 @@ export class RDAPClient {
           ],
         };
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(
         `RDAPClient: Failed to query IP ${ipAddress}:`,

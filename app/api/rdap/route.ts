@@ -18,6 +18,7 @@ function isIpAddress(query: string): boolean {
     ipaddr.process(query);
     return true;
   } catch (e) {
+    console.log('Invalid IP address:', query, "Error:", e);
     return false;
   }
 }
@@ -64,8 +65,10 @@ export async function GET(request: NextRequest) {
                 ORDER BY masklen("cidrBlock"::inet) DESC
                 LIMIT 1
             `;
-        result = resultsArray.length > 0 ? resultsArray[0] : null;
+        result = resultsArray.length > 0 ? resultsArray[0] : null;      
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (dbError: any) {
+        
         if (dbError.message?.includes('invalid input syntax for type inet')) {
           console.warn(
             `API Route: Invalid inet format for queryRaw: ${searchTerm}. Treating as cache miss.`
@@ -201,6 +204,7 @@ export async function GET(request: NextRequest) {
             `API Route: Cached Domain data with ID: ${newCacheEntry.id}`
           );
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (cacheError: any) {
         if (cacheError.code === 'P2002') {
           console.warn(

@@ -21,9 +21,12 @@ export interface RdapDomainResponse extends RdapBaseResponse {
   objectClassName: 'domain';
   ldhName: string;
   unicodeName?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   nameservers?: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   entities?: any[];
   status?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   events?: any[];
 }
 
@@ -37,9 +40,12 @@ export interface RdapIpNetworkResponse extends RdapBaseResponse {
   type?: string;
   country?: string;
   cidr?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cidr0_cidrs?: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   entities?: any[];
   status?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   events?: any[];
 }
 
@@ -47,6 +53,7 @@ export type RdapError = {
   errorCode: number;
   title?: string;
   description: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
 
@@ -69,6 +76,7 @@ export type BootstrapCache = {
   lastUpdated: Date | null;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isRdapError(obj: any): obj is RdapError {
   return (
     typeof obj === 'object' &&
@@ -78,15 +86,15 @@ export function isRdapError(obj: any): obj is RdapError {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isRdapDomainResponse(obj: any): obj is RdapDomainResponse {
   return (
     typeof obj === 'object' && obj !== null && obj.objectClassName === 'domain'
   );
 }
 
-export function isRdapIpNetworkResponse(
-  obj: any
-): obj is RdapIpNetworkResponse {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isRdapIpNetworkResponse(obj: any): obj is RdapIpNetworkResponse {
   return (
     typeof obj === 'object' &&
     obj !== null &&
