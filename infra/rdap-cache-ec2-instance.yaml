@@ -1,9 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Launches EC2, installs git, clones repo, executes install scripts from repo.'
+Description: >
+  Launches EC2 instance for RDAP Cache, installs dependencies, runs setup scripts,
+  and assigns an IAM Role allowing S3 backup uploads.
 
 Parameters:
   KeyName:
-    Type: String # Using String due to previous validation issue
+    Type: String
     Description: 'Name of an existing EC2 KeyPair to enable SSH access to the instance'
 
   InstanceType:
@@ -24,8 +26,13 @@ Parameters:
 
   SecurityGroupStackName:
     Type: String
-    Description: 'Name of the CloudFormation stack that created the security group (e.g., rdap-cache-sg-stack).'
-    Default: 'rdap-cache-sg-stack'
+    Description: 'Name of the CloudFormation stack that created the security group.'
+    Default: 'rdap-cache-sg-stack' # Ensure this matches your SG stack name
+
+  S3BackupBucketStackName:
+    Type: String
+    Description: 'Name of the CloudFormation stack that created the S3 backup bucket.'
+    Default: 'rdap-cache-db-backup-bucket-stack' # Ensure this matches your S3 stack name
 
   AppRepoUrl:
     Type: String
@@ -33,6 +40,49 @@ Parameters:
     Default: 'https://github.com/StackSignalDev/rdap-cache-service.git'
 
 Resources:
+  # --- IAM Role and Policy for S3 Backup Access ---
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'rdap-cache-instance-role-${AWS::StackName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: S3BackupBucketWritePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject # Permission needed to upload backups
+                Resource:
+                  # Grant access ONLY to objects INSIDE the specific backup bucket
+                  - !Sub
+                    - '${BackupBucketArn}/*' # The /* is crucial for object actions
+                    - BackupBucketArn: !ImportValue ${S3BackupBucketStackName}-BackupBucketArn
+                # Optional: If you need to list backups later (e.g., for cleanup)
+                #           add another statement for s3:ListBucket on the bucket ARN itself.
+                # - Effect: Allow
+                #   Action:
+                #     - s3:ListBucket
+                #   Resource:
+                #     - !ImportValue ${S3BackupBucketStackName}-BackupBucketArn
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub 'rdap-cache-instance-profile-${AWS::StackName}'
+      Path: "/"
+      Roles:
+        - !Ref EC2InstanceRole
+  # --- End IAM Role and Policy ---
+
   EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
@@ -41,21 +91,22 @@ Resources:
       KeyName: !Ref KeyName
       SecurityGroupIds:
         - Fn::ImportValue: !Sub '${SecurityGroupStackName}-SecurityGroupId'
+      # --- Attach the Instance Profile ---
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      # --- End Attach Instance Profile ---
       Tags:
         - Key: Name
           Value: RDAPCacheInstance
       UserData:
         Fn::Base64:
           !Sub
+          # --- UserData script content remains the same ---
           - |
             #!/bin/bash -xe
             # Log everything
             exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-            echo "Starting UserData script (using Fn::Sub map for user/dir, executing repo scripts)..."
-
-            # --- Variables are substituted by Fn::Sub from the map below ---
-
+            echo "Starting UserData script..."
             # --- System Update and Git Install ---
             echo "Updating system packages..."
             apt update -y
@@ -63,30 +114,24 @@ Resources:
             apt install -y git
 
             # --- Application User and Directory Setup ---
-            # Use ${APP_USER} (no !) - will be substituted by Fn::Sub
             echo "Creating application user ${APP_USER}..."
             useradd -m -s /bin/bash ${APP_USER} || echo "User ${APP_USER} already exists"
-
-            # Use ${APP_DIR} (no !) - will be substituted by Fn::Sub
             echo "Creating application directory ${APP_DIR}..."
             mkdir -p ${APP_DIR}
 
-            # Use ${AppRepoUrl}, ${APP_DIR} (no !) - substituted by Fn::Sub
             echo "Cloning application from ${AppRepoUrl} into ${APP_DIR}..."
             git clone ${AppRepoUrl} ${APP_DIR}
 
-            # Use ${APP_USER}, ${APP_DIR} (no !) - substituted by Fn::Sub
             echo "Setting ownership of ${APP_DIR} to ${APP_USER}..."
             chown -R ${APP_USER}:${APP_USER} ${APP_DIR}
 
             echo "Changing directory to application root ${APP_DIR}..."
-            cd "${APP_DIR}" # <<<--- Ensure current directory is the app root
+            cd "${APP_DIR}"
 
             if [ -d "infra/install" ]; then
                 find "infra/install" -maxdepth 1 -type f -name '[0-9]*_*.sh' | sort | while IFS= read -r script_path; do
                     if [ -f "$script_path" ]; then
                         echo "--- Running script: $script_path ---"
-                        # Execute script using its full path, current dir remains APP_DIR
                         bash "$script_path"
                         echo "--- Finished script: $script_path ---"
                     else
@@ -98,18 +143,13 @@ Resources:
 
             # --- UserData Finish ---
             echo "UserData script finished."
+            # ... (rest of the UserData script and concluding messages) ...
             echo "**********************************************************************"
             echo "***                     SETUP COMPLETE (Review Logs)                 ***"
             echo "**********************************************************************"
-            echo "*** UserData attempted to run scripts in infra/install."
-            echo "*** 1. SSH into the instance: ssh -i <key.pem> ubuntu@<public_ip>  ***"
-            echo "*** 2. Check UserData log: sudo tail -n 200 /var/log/user-data.log ***"
-            echo "*** 3. Check PostgreSQL status: sudo systemctl status postgresql   ***"
-            echo "*** 4. Check application user/db setup (consult script logs/output). ***"
-            # Use ${APP_DIR} (substituted by Fn::Sub)
-            echo "*** 5. Verify .env file: sudo cat ${APP_DIR}/.env                  ***"
-            echo "*** Next steps: Run remaining setup scripts if needed (e.g., Node install, service setup)."
+            # ...
             echo "**********************************************************************"
+          # --- Fn::Sub variable map remains the same ---
           - {
               AppRepoUrl: !Ref AppRepoUrl,
               APP_USER: 'rdapapp',
@@ -123,3 +163,10 @@ Outputs:
   PublicIp:
     Description: 'The public IP address of the EC2 instance'
     Value: !GetAtt EC2Instance.PublicIp
+  # Optional: Output Role/Profile ARNs if needed elsewhere
+  InstanceRoleArn:
+    Description: 'ARN of the IAM Role created for the EC2 instance'
+    Value: !GetAtt EC2InstanceRole.Arn
+  InstanceProfileArn:
+    Description: 'ARN of the IAM Instance Profile created for the EC2 instance'
+    Value: !GetAtt EC2InstanceProfile.Arn

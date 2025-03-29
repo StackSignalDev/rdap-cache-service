@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Creates a secure S3 bucket intended for storing RDAP Cache database backups.
+  Includes Block Public Access, and Server-Side Encryption (SSE-S3).
+
+Parameters:
+  BucketPurposeTag:
+    Type: String
+    Default: 'RDAP Cache Database Backups'
+    Description: 'Value for the Purpose tag applied to the bucket.'
+
+Resources:
+  S3BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "rdap-cache-db-backups"
+      AccessControl: Private 
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Suspended
+      Tags:
+        - Key: Name
+          Value: "rdap-cache-db-backups"
+        - Key: Purpose
+          Value: !Ref BucketPurposeTag
+        - Key: StackName
+          Value: !Ref AWS::StackName
+
+Outputs:
+  BackupBucketName:
+    Description: 'The name of the S3 bucket created for backups.'
+    Value: !Ref S3BackupBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupBucketName'
+
+  BackupBucketArn:
+    Description: 'The ARN of the S3 bucket created for backups.'
+    Value: !GetAtt S3BackupBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupBucketArn'
