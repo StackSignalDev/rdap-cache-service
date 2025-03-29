@@ -53,11 +53,20 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 sudo -u postgres psql -c "ALTER USER $DB_USER CREATEDB;"
 sudo -u postgres psql -d $DB_NAME -c "GRANT USAGE, CREATE ON SCHEMA public TO $DB_USER;"
 
+if ! command -v jq &> /dev/null; then
+    echo "jq command not found, installing..."
+    sudo apt-get update -y && sudo apt-get install -y jq || { echo "ERROR: Failed to install jq."; exit 1; }
+    echo "jq installed."
+fi
+echo ""
+
 ENV_FILE="$APP_DIR/.env"
 echo "-------------------------------------------"
 echo "Creating/Updating .env file: $ENV_FILE"
 
-DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@localhost:5432/${DB_NAME}"
+ENCODED_DB_PASSWORD=$(jq -nr --arg pw "$RAW_DB_PASSWORD" '$pw|@uri')
+echo "URL Encoded Password generated."
+DATABASE_URL="postgresql://${DB_USER}:${ENCODED_DB_PASSWORD}@localhost:5432/${DB_NAME}"
 
 if [ -f "$ENV_FILE" ]; then
     echo "WARNING: $ENV_FILE already exists. Database URL not automatically added/updated."
@@ -71,14 +80,11 @@ else
     echo "Setting ownership of $ENV_FILE to ${APP_SETUP_USER}..."
     sudo chown ${APP_SETUP_USER}:${APP_SETUP_USER} "$ENV_FILE"
 
-    # Set permissions (read/write for owner only)
     echo "Setting permissions of $ENV_FILE to 600..."
     sudo chmod 600 "$ENV_FILE"
     echo "$ENV_FILE created successfully with DATABASE_URL."
 fi
 
-
-# --- 5. Output Summary ---
 echo "-------------------------------------------"
 echo "PostgreSQL User/Database setup completed!"
 echo ""
