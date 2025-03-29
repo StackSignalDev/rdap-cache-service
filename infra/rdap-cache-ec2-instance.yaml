@@ -60,19 +60,12 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:PutObject # Permission needed to upload backups
+                  - s3:PutObject
                 Resource:
-                  # Grant access ONLY to objects INSIDE the specific backup bucket
-                  - !Sub
-                    - '${BackupBucketArn}/*' # The /* is crucial for object actions
-                    - BackupBucketArn: !ImportValue ${S3BackupBucketStackName}-BackupBucketArn
-                # Optional: If you need to list backups later (e.g., for cleanup)
-                #           add another statement for s3:ListBucket on the bucket ARN itself.
-                # - Effect: Allow
-                #   Action:
-                #     - s3:ListBucket
-                #   Resource:
-                #     - !ImportValue ${S3BackupBucketStackName}-BackupBucketArn
+                  - Fn::Join:
+                      - ''
+                      - - Fn::ImportValue: !Sub '${S3BackupBucketStackName}-BackupBucketArn'
+                        - '/*'
 
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile

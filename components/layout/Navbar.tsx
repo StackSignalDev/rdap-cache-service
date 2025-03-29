@@ -13,7 +13,7 @@ const Navbar = () => {
           </Link>
           <Link href="/search" className="px-3 hover:text-blue-200">
             Search
-          </Link>
+          </Link>          
         </div>
       </div>
     </nav>
