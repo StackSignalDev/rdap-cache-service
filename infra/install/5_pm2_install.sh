@@ -1,8 +1,6 @@
 #!/bin/bash
 
 set -e
-set -u
-set -o pipefail
 
 APP_DIR="/srv/rdap-cache-service"
 APP_NAME="rdap-cache-service"
@@ -73,11 +71,9 @@ echo ""
 
 
 echo "Starting/Restarting application '$APP_NAME' with PM2 using 'npm start'..."
-# Ensure we are still in the correct directory
 cd "$APP_DIR" || exit 1
 
 ECOSYSTEM_FILE="$APP_DIR/ecosystem.config.js"
-# Create ecosystem file as app user
 sudo -u "$APP_USER" bash -c "cat > $ECOSYSTEM_FILE" <<EOF
 module.exports = {
   apps : [{
