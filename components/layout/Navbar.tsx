@@ -11,8 +11,11 @@ const Navbar = () => {
           <Link href="/" className="px-3 hover:text-blue-200">
             Home
           </Link>
-          <Link href="/search" className="px-3 hover:text-blue-200">
-            Search
+          <Link href="/rdap" className="px-3 hover:text-blue-200">
+            RDAP Lookup
+          </Link>          
+          <Link href="/dns" className="px-3 hover:text-blue-200">
+            DNS Lookup
           </Link>          
         </div>
       </div>

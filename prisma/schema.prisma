@@ -31,3 +31,14 @@ model DomainCache {
   updatedAt   DateTime @updatedAt
   @@index([domainName])
 }
+
+model DnsCache {
+  id          String   @id @default(cuid())
+  domainName  String   @unique
+  records     Json
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([domainName])
+}
